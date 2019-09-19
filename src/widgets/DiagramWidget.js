@@ -14,7 +14,7 @@ const DEFAULT_ACTIONS = {
   multiselect: true,
   multiselectDrag: true,
   canvasDrag: true,
-  zoom: true,
+  zoom: false,
   copy: true,
   paste: true,
   selectAll: true,
@@ -43,6 +43,7 @@ export class DiagramWidget extends React.Component {
       windowListener: null,
       clipboard: null
     };
+    this.openModal = props.openModal;
   }
 
   componentWillUnmount() {
@@ -71,8 +72,9 @@ export class DiagramWidget extends React.Component {
 
   componentDidMount() {
     const { diagramEngine, onChange } = this.props;
-    diagramEngine.setCanvas(this.refs['canvas']);
+    diagramEngine.setCanvas(this.canvasRef);
     diagramEngine.setForceUpdate(this.forceUpdate.bind(this));
+    diagramEngine.setOpenModal(this.openModal.bind(this));
     const { selectAll, deselectAll, copy, paste, deleteItems } = this.getActions();
 
     // Add a keyboard listener
@@ -107,7 +109,7 @@ export class DiagramWidget extends React.Component {
         }
 
         // Delete all selected
-        if ([8, 46].indexOf(event.keyCode) !== -1 && selectedItems.length && deleteItems) {
+        if ([8, 46].indexOf(event.keyCode) !== -1 && ctrl && selectedItems.length && deleteItems) {
           selectedItems.forEach(element => {
             element.remove();
           });
@@ -316,7 +318,7 @@ export class DiagramWidget extends React.Component {
     const { diagramEngine } = this.props;
     const { action, actionType: currentActionType } = this.state;
     const diagramModel = diagramEngine.getDiagramModel();
-    const { left, top } = this.refs.canvas.getBoundingClientRect();
+    const { left, top } = this.canvasRef.getBoundingClientRect();
     const { multiselectDrag, canvasDrag, moveItems } = this.getActions();
 
     // Select items so draw a bounding box
@@ -490,6 +492,10 @@ export class DiagramWidget extends React.Component {
     if (element === null) {
       // No element, this is a canvas event
       // actionOutput.type = 'canvas-event';
+      if (actionType === 'canvas-click') {
+        // do not generate undo event
+        actionOutput.type = 'unknown';
+      }
       actionOutput.event = event;
     } else if (action instanceof MoveItemsAction) {
       // Add the node model to the output
@@ -500,19 +506,51 @@ export class DiagramWidget extends React.Component {
         // Only care about points connecting to things or being created
         if (model.model instanceof PointModel) {
           // Check if a point was created
-          if (element.element.tagName === 'circle' && actionOutput.type !== 'link-created') {
-            actionOutput.type = 'point-created';
+          if (element.element.tagName === 'circle') {
+            if (actionOutput.type !== 'link-created') {
+              actionOutput.type = 'point-created';
+            } else {
+              // disallow links pointing nowhere
+              diagramEngine.getDiagramModel().getLink(
+                model.model.getLink()).remove();
+            }
           }
 
           if (element.model instanceof PortModel) {
-            // Connect the link
-            model.model.getLink().setTargetPort(element.model);
+            if (element.model.getName() != 'input') {
+              // allow only input ports
+              diagramEngine.getDiagramModel().getLink(
+                model.model.getLink()).remove();
+            } else {
+              const newLink = model.model.getLink();
+              let foundBadLink = false;
+              // check for duplicate link
+              _.forEach(diagramEngine.getDiagramModel().getLinks(), link => {
+                if (newLink.getSourcePort() === link.getSourcePort() &&
+                  link.getTargetPort() === element.model) {
+                  foundBadLink = true;
+                  return false;
+                }
+              });
+              // links cannot emanate from inputs
+              if (newLink.getSourcePort().getName() === 'input') {
+                foundBadLink = true;
+              }
+              if (foundBadLink) {
+                // remove
+                diagramEngine.getDiagramModel().getLink(
+                  newLink).remove();
+              } else {
+                // Connect the link
+                model.model.getLink().setTargetPort(element.model);
 
-            // Link was connected to a port, update the output
-            actionOutput.type = 'link-connected';
-            delete actionOutput.model;
-            actionOutput.linkModel = model.model.getLink();
-            actionOutput.portModel = element.model;
+                // Link was connected to a port, update the output
+                actionOutput.type = 'link-connected';
+                delete actionOutput.model;
+                actionOutput.linkModel = model.model.getLink();
+                actionOutput.portModel = element.model;
+              }
+            }
           }
         }
       });
@@ -558,8 +596,8 @@ export class DiagramWidget extends React.Component {
 
   renderSelector() {
     const { action } = this.state;
-    const offsetWidth = this.refs.canvas && this.refs.canvas.offsetWidth || window.innerWidth;
-    const offsetHeight = this.refs.canvas && this.refs.canvas.offsetHeight || window.innerHeight;
+    const offsetWidth = this.canvasRef && this.canvasRef.offsetWidth || window.innerWidth;
+    const offsetHeight = this.canvasRef && this.canvasRef.offsetHeight || window.innerHeight;
 
     if (!(action instanceof SelectingAction)) {
       return null;
@@ -595,7 +633,7 @@ export class DiagramWidget extends React.Component {
 
     return (
       <div
-        ref='canvas'
+        ref={r => this.canvasRef = r}
         className='react-js-diagrams-canvas'
         onWheel={this.onWheel.bind(this)}
         onMouseMove={this.onMouseMove.bind(this)}

@@ -17,6 +17,7 @@ export class DiagramEngine extends BaseEntity {
     this.canvas = null;
     this.paintableWidgets = null;
     this.forceUpdate = () => {};
+    this.openModal = () => {};
   }
 
   clearRepaintEntities() {
@@ -62,6 +63,10 @@ export class DiagramEngine extends BaseEntity {
 
   setForceUpdate(forceUpdate) {
     this.forceUpdate = forceUpdate;
+  }
+
+  setOpenModal(openModal) {
+    this.openModal = openModal;
   }
 
   getDiagramModel() {
@@ -138,7 +143,7 @@ export class DiagramEngine extends BaseEntity {
     const point = this.getRelativePoint(event.pageX, event.pageY);
     return {
       x: (point.x / (this.diagramModel.getZoomLevel() / 100.0)) - this.diagramModel.getOffsetX(),
-      y: (point.y / (this.diagramModel.getZoomLevel() / 100.0)) - this.diagramModel.getOffsetY()
+      y: ((point.y - window.pageYOffset) / (this.diagramModel.getZoomLevel() / 100.0)) - this.diagramModel.getOffsetY()
     };
   }
 
